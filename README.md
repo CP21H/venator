@@ -1,3 +1,2 @@
 # Venator
-
-Named after Venator, the character from Deadlock, and the Venator-class Star Destroyer from Star Wars, Venator is my take on a PX4+Gazebo Drone Simulation solution.
+Named after Venator, the character from Deadlock, and the Venator-class Star Destroyer from Star Wars, Venator is my take on a PX4+Gazebo Drone Simulation solution. Although still in it's early stages, the goal of Venator is to bridge the simulation-to-real gap as best as possible while also giving me the opportunity to learn and work with PX4, Gazebo, Mavlink, and other technologies in the domain of UAS. This work is motivated by the great time I had at the Anduril AI Grand Prix this past September, 2026.
