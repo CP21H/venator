@@ -1,0 +1,116 @@
+{
+  "origin_latlon_alt": [
+    47.397971057728974,
+    8.546163739800146,
+    289.0
+  ],
+  "start": {
+    "x": 2.896,
+    "y": 21.031,
+    "z": 0.2,
+    "yaw_rad": 1.5708
+  },
+  "gate_opening_m": 2.7,
+  "gates_in_order": [
+    {
+      "gate": 1,
+      "x": 3.658,
+      "y": 28.651,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": 90,
+      "pdf_rotation_deg": 0,
+      "double_stack": false
+    },
+    {
+      "gate": 2,
+      "x": 4.877,
+      "y": 38.405,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": 90,
+      "pdf_rotation_deg": 0,
+      "double_stack": false
+    },
+    {
+      "gate": 3,
+      "x": 12.192,
+      "y": 45.11,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": 0,
+      "pdf_rotation_deg": 90,
+      "double_stack": false
+    },
+    {
+      "gate": 4,
+      "x": 21.946,
+      "y": 38.1,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": -90,
+      "pdf_rotation_deg": 180,
+      "double_stack": false
+    },
+    {
+      "gate": 5,
+      "x": 20.117,
+      "y": 28.956,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": -125,
+      "pdf_rotation_deg": 215,
+      "double_stack": false
+    },
+    {
+      "gate": 6,
+      "x": 12.497,
+      "y": 24.079,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": 0,
+      "pdf_rotation_deg": 90,
+      "double_stack": false
+    },
+    {
+      "gate": 7,
+      "x": 21.488,
+      "y": 17.8,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": -90,
+      "pdf_rotation_deg": 180,
+      "double_stack": false
+    },
+    {
+      "gate": 8,
+      "x": 18.288,
+      "y": 10.973,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": -125,
+      "pdf_rotation_deg": 215,
+      "double_stack": false
+    },
+    {
+      "gate": 9,
+      "x": 12.101,
+      "y": 5.273,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": -90,
+      "pdf_rotation_deg": 180,
+      "double_stack": true
+    },
+    {
+      "gate": 10,
+      "x": 3.962,
+      "y": 16.764,
+      "z_center": 1.85,
+      "z_path": 1.85,
+      "yaw_deg": 90,
+      "pdf_rotation_deg": 0,
+      "double_stack": false
+    }
+  ]
+}
