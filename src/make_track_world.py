@@ -281,6 +281,8 @@ def main():
         # NOTE: the middle of a stacked pair is the divider bar - fly through one opening instead
         z_mid = zc + ((a.gate_open + a.bar) if (stacked and a.double_pass == "upper") else 0)
         meta_gates.append({"gate": num, "x": x, "y": y, "z_center": round(zc, 3), "z_path": round(z_mid, 3),
+                           "z_lower": round(zc, 3),
+                           "z_upper": round(zc + a.gate_open + a.bar, 3) if stacked else None,
                            "yaw_deg": yaw, "pdf_rotation_deg": rot, "double_stack": stacked})
         wps.append({"x": x, "y": y, "z": round(z_mid, 2)})
 

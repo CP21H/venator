@@ -48,8 +48,15 @@ PX4_PARAMS_INT = {
 # ----------------------------------------------------------------------------
 # Route building
 # ----------------------------------------------------------------------------
-def build_route(gates_json, approach):
-    """Returns (route, meta). route = list of dicts {x,y,z,label,gate} in Gazebo ENU meters."""
+def build_route(gates_json, approach, double_mode="upper-lower", turn_out=2.0):
+    """Returns (route, meta). route = list of dicts {x,y,z,label,gate} in Gazebo ENU meters.
+
+    Gate ids are strings ("1".."10"; the double gate becomes "9U" and "9L").
+    double_mode:
+      upper-lower : through the TOP opening, a half-loop (split-S) past the gate, then back
+                    through the BOTTOM opening in the opposite direction
+      lower / upper : fly one opening only
+    """
     meta = json.loads(Path(gates_json).read_text())
     st = meta["start"]
     sx, sy, sz = st["x"], st["y"], st["z"]
@@ -57,17 +64,40 @@ def build_route(gates_json, approach):
 
     route = [{"x": sx, "y": sy, "z": sz, "label": "start", "gate": None}]
     route.append({"x": sx, "y": sy, "z": gates[0]["z_path"], "label": "climb", "gate": None})
+
+    def add(x, y, z, label, gate=None):
+        route.append({"x": x, "y": y, "z": z, "label": label, "gate": gate})
+
     for g in gates:
         yaw = math.radians(g["yaw_deg"])
-        dx, dy = math.cos(yaw), math.sin(yaw)
-        x, y, z = g["x"], g["y"], g["z_path"]
-        n = g["gate"]
-        route.append({"x": x - approach * dx, "y": y - approach * dy, "z": z, "label": f"pre{n}", "gate": n})
-        route.append({"x": x, "y": y, "z": z, "label": f"GATE{n}", "gate": n})
-        route.append({"x": x + approach * dx, "y": y + approach * dy, "z": z, "label": f"post{n}", "gate": n})
-        for i, (xf, yf) in enumerate(VIA_AFTER_GATE_FT.get(n, [])):
-            route.append({"x": xf * FT, "y": (TRACK_L_FT - yf) * FT, "z": z, "label": f"via{n}.{i}", "gate": n})
-    route.append({"x": sx, "y": sy, "z": gates[-1]["z_path"], "label": "home_above", "gate": None})
+        dx, dy = math.cos(yaw), math.sin(yaw)          # flight direction through the gate
+        x, y = g["x"], g["y"]
+        n = str(g["gate"])
+
+        if g.get("double_stack") and double_mode == "upper-lower":
+            zu, zl = g["z_upper"], g["z_lower"]
+            A = max(approach, 2.5)                      # longer, gentler climb into the top opening
+            r = (zu - zl) / 2.0
+            zc = (zu + zl) / 2.0
+            along = lambda t: (x + t * dx, y + t * dy)  # t>0 = beyond the gate in flight direction
+            add(*along(-A), zu, f"pre{n}U", f"{n}U")
+            add(x, y, zu, f"GATE{n}U", f"{n}U")
+            add(*along(turn_out), zu, f"post{n}U", f"{n}U")
+            for deg in (30, 60, 90, 120, 150):          # vertical half-loop, bulging past the gate
+                th = math.radians(deg)
+                add(*along(turn_out + r * math.sin(th)), zc + r * math.cos(th), f"loop{n}.{deg}")
+            add(*along(turn_out), zl, f"pre{n}L", f"{n}L")      # now heading back toward the gate
+            add(x, y, zl, f"GATE{n}L", f"{n}L")
+            add(*along(-A), zl, f"post{n}L", f"{n}L")
+        else:
+            z = g["z_upper"] if (g.get("double_stack") and double_mode == "upper") else g["z_path"]
+            add(x - approach * dx, y - approach * dy, z, f"pre{n}", n)
+            add(x, y, z, f"GATE{n}", n)
+            add(x + approach * dx, y + approach * dy, z, f"post{n}", n)
+
+        for i, (xf, yf) in enumerate(VIA_AFTER_GATE_FT.get(g["gate"], [])):
+            add(xf * FT, (TRACK_L_FT - yf) * FT, route[-1]["z"], f"via{n}.{i}")
+    add(sx, sy, gates[-1]["z_path"], "home_above")
     return route, meta
 
 
@@ -157,7 +187,7 @@ async def set_params(drone):
 
 
 async def run(args):
-    route, meta = build_route(args.gates, args.approach)
+    route, meta = build_route(args.gates, args.approach, args.double_mode)
 
     if args.dry_run:
         ned = enu_to_ned(route, meta, 0, 0, 0)
@@ -202,20 +232,20 @@ async def run(args):
 
     ned = enu_to_ned(route, meta, n0, e0, d0)
     pl = Polyline(ned)
-    gates = {g["gate"]: g for g in meta["gates_in_order"]}
     print(f"Route: {len(ned)} points, {pl.total:.1f} m, ~{pl.total / args.speed:.0f} s at {args.speed} m/s")
 
-    # arc-length window of each gate (pre -> post) for miss-distance reporting
-    windows, gate_s = {}, {}
+    # arc-length window of each gate pass (pre -> post) for miss-distance reporting
+    windows, gate_s, gate_pt, gate_order = {}, {}, {}, []
     for i, p in enumerate(ned):
-        if p["label"].startswith("pre"):
+        if p["label"].startswith("pre") and p["gate"]:
             windows[p["gate"]] = [pl.cum[i], None]
-        elif p["label"].startswith("post"):
+        elif p["label"].startswith("post") and p["gate"]:
             windows[p["gate"]][1] = pl.cum[i]
         elif p["label"].startswith("GATE"):
             gate_s[p["gate"]] = pl.cum[i]
-    gate_pt = {p["gate"]: p for p in ned if p["label"].startswith("GATE")}
-    best = {n: 1e9 for n in gates}
+            gate_pt[p["gate"]] = p
+            gate_order.append(p["gate"])
+    best = {n: 1e9 for n in gate_order}
     passed = set()
 
     takeoff_alt = route[1]["z"] - meta["start"]["z"]   # height above the start pad
@@ -249,8 +279,12 @@ async def run(args):
             if advancing:
                 s = min(pl.total, s + args.speed * dt)
             vel = tuple(args.speed * c for c in tan) if advancing else (0.0, 0.0, 0.0)
-            if math.hypot(tan[0], tan[1]) > 0.2:   # ignore heading during pure climbs
-                yaw = slew(yaw, math.degrees(math.atan2(tan[1], tan[0])), args.yaw_rate * dt)
+            # camera-forward heading: look at a point a few meters AHEAD on the path, so the
+            # nose turns toward the upcoming gate before the drone gets there
+            ahead, _ = pl.at(s + args.look_ahead)
+            bn, be = ahead[0] - pos[0], ahead[1] - pos[1]
+            if math.hypot(bn, be) > 0.5:               # skip during pure climbs/descents
+                yaw = slew(yaw, math.degrees(math.atan2(be, bn)), args.yaw_rate * dt)
             await drone.offboard.set_position_velocity_ned(
                 PositionNedYaw(pos[0], pos[1], pos[2], yaw), VelocityNedYaw(vel[0], vel[1], vel[2], yaw))
 
@@ -262,7 +296,7 @@ async def run(args):
                     best[n] = min(best[n], dist)
                 if s >= gate_s[n] and n not in passed:
                     passed.add(n)
-                    print(f"  carrot passed gate {n:>2}  (t={time.time() - t_start:5.1f}s)")
+                    print(f"  carrot passed gate {n:>3}  (t={time.time() - t_start:5.1f}s)")
 
             if time.time() - t_log > 2.0:
                 t_log = time.time()
@@ -279,9 +313,9 @@ async def run(args):
 
         print("\nGate pass report (closest approach of drone to gate center):")
         half = meta["gate_opening_m"] / 2
-        for n in sorted(best):
+        for n in gate_order:
             ok = "OK " if best[n] < half - 0.25 else "RISK"
-            print(f"  gate {n:>2}: {best[n]:5.2f} m   {ok}")
+            print(f"  gate {n:>3}: {best[n]:5.2f} m   {ok}")
         print(f"  (opening half-width = {half:.2f} m; RISK = closer to the frame than ~0.25 m margin or missed)")
     except KeyboardInterrupt:
         print("\nInterrupted - landing.")
@@ -308,7 +342,11 @@ def main():
     ap.add_argument("--speed", type=float, default=2.0, help="carrot speed along path, m/s")
     ap.add_argument("--approach", type=float, default=1.5, help="pre/post-gate point distance, m")
     ap.add_argument("--lead", type=float, default=1.5, help="max carrot lead over the drone, m")
-    ap.add_argument("--yaw-rate", type=float, default=90.0, help="max heading slew, deg/s")
+    ap.add_argument("--yaw-rate", type=float, default=120.0, help="max heading slew, deg/s")
+    ap.add_argument("--look-ahead", type=float, default=3.0,
+                    help="point the nose at the path this many meters ahead (camera-forward heading)")
+    ap.add_argument("--double-mode", choices=["upper-lower", "upper", "lower"], default="upper-lower",
+                    help="how to fly the stacked double gate")
     ap.add_argument("--timeout", type=float, default=300.0, help="abort route after this many s")
     ap.add_argument("--connect-timeout", type=float, default=120.0)
     ap.add_argument("--no-params", action="store_true", help="don't touch PX4 parameters")
