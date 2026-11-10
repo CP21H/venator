@@ -294,7 +294,10 @@ def main():
 
     sx, sy = to_enu(*START_FT)
     meta = {"origin_latlon_alt": [a.lat, a.lon, a.alt], "start": {"x": sx, "y": sy, "z": 0.2, "yaw_rad": round(math.pi / 2, 4)},
-            "gate_opening_m": a.gate_open, "gates_in_order": meta_gates}
+            "gate_opening_m": a.gate_open, "bar_m": a.bar, "depth_m": a.depth,
+            "boundary_m": [round(TRACK_W_FT * FT, 3), round(TRACK_L_FT * FT, 3)],
+            "cones": [list(to_enu(xf, yf)) for xf, yf in CONES_FT],
+            "gates_in_order": meta_gates}
     Path("gates.json").write_text(json.dumps(meta, indent=2))
 
     w, l = TRACK_W_FT * FT, TRACK_L_FT * FT
