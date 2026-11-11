@@ -12,11 +12,14 @@ How it flies
      leaving each gate along its flight axis.  A small optimizer then shifts where the line
      crosses each gate (within the opening) and how wide each turn is, to minimize lap time at
      the speed you asked for while staying clear of every frame, stand, cone and the boundary.
+
   2. SPEED PROFILE.  Speed along the path = min(--speed, sqrt(lateral_accel / curvature)),
      smoothed with forward/backward passes so it brakes before corners and accelerates out.
      Faster --speed  =>  wider, flatter lines and slower hairpins automatically.
+  
   3. FLY.  Take off to gate height, then stream position + velocity + acceleration setpoints
      at 50 Hz on a fixed clock.  No stop-and-go: the trajectory is a function of time.
+  
   4. WATCH.  Every tick the drone position is checked against the real gate geometry.  A hit is
      logged (which gate, which part, speed) and, by default, the motors are killed like a real
      crash.  An IMU shock detector backs this up.  Gate passes and clearances are reported.
@@ -28,6 +31,7 @@ import json
 import math
 import time
 from pathlib import Path
+from utility.vector_helpers import vadd, vsub, vmul, vdot, vnorm, vunit, vlerp, wrap180, slew
 
 FT = 0.3048
 TRACK_L_FT = 165.0
@@ -54,27 +58,6 @@ def px4_float_params(a):
         "MPC_ACC_HOR": max(8.0, a.lat_accel * 1.4),
         "MPC_TILTMAX_AIR": 60.0,
     }
-
-
-# ----------------------------------------------------------------------------
-# small vector helpers (tuples, no numpy)
-# ----------------------------------------------------------------------------
-def vadd(a, b): return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
-def vsub(a, b): return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
-def vmul(a, k): return (a[0] * k, a[1] * k, a[2] * k)
-def vdot(a, b): return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-def vnorm(a): return math.sqrt(vdot(a, a))
-def vunit(a):
-    n = vnorm(a)
-    return (a[0] / n, a[1] / n, a[2] / n) if n > 1e-9 else (0.0, 0.0, 0.0)
-def vlerp(a, b, f): return (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f)
-def wrap180(a): return (a + 180.0) % 360.0 - 180.0
-
-
-def slew(cur, tgt, max_step):
-    d = wrap180(tgt - cur)
-    return wrap180(cur + max(-max_step, min(max_step, d)))
-
 
 # ----------------------------------------------------------------------------
 # World geometry (matches the SDF the generator writes) - used for planning AND collisions
