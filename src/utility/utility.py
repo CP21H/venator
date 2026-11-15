@@ -3,6 +3,11 @@ import argparse
 from pathlib import Path
 from utility.vector_helpers import vadd, vsub, vmul, vdot, vnorm, vunit
 
+# Unit conversion and track constants.
+#   FT          : meters per foot (the track PDF is in feet, everything here is meters).
+#   TRACK_L_FT  : track length in feet. The PDF's Y axis points DOWN the page, ours points north,
+#                 so we flip it with (TRACK_L_FT - y_ft) when converting via-points below.
+#   G           : gravity in m/s^2; converts the IMU impact threshold from 'g' to m/s^2.
 FT = 0.3048
 TRACK_L_FT = 165.0
 G = 9.81
@@ -15,7 +20,9 @@ VIA_AFTER_GATE_FT = {5: [(30.4, 82.4, -90.0)]}
 # Knots -> spline -> speed profile
 # ----------------------------------------------------------------------------
 def build_knots(meta, double_mode, turn_out=2.0):
-    """Ordered knots: dict(pos, dir, c, opt, perp, label, gate, req) in ENU meters."""
+    """
+    Ordered knots: dict(pos, dir, c, opt, perp, label, gate, req) in ENU meters.
+    """
     st = meta["start"]
     sx, sy = st["x"], st["y"]
     gates = meta["gates_in_order"]

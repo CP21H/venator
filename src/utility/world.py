@@ -1,17 +1,32 @@
 import math
 
+# ----------------------------------------------------------------------------
+# World geometry 
+# ----------------------------------------------------------------------------
+# Everything solid on the track, described exactly like the Gazebo world the generator builds:
+# gate frames (two posts, a top bar, a bottom bar, and a floor stand) plus the cones.
+#
+# Each part is stored as a box in the gate's LOCAL frame (u = along flight direction,
+# v = sideways, w = height). The planner uses min_clear() to keep the path away from everything;
+# run() uses the same function to detect when the drone actually hits something. One source of
+# truth for both, so the plan and the collision check can never disagree about the geometry.
 class World:
     CULL = 4.0
 
     def __init__(self, meta):
+        # Gate dimensions
         W = meta["gate_opening_m"]
         T = meta["bar_m"]
         D = meta["depth_m"]
         H = W
         self.W, self.H, self.T = W, H, T
+        
+        # Track boundary [width, length] in meters
         self.boundary = meta["boundary_m"]
         self.cones = [tuple(c) for c in meta["cones"]]
         self.frames = []
+
+        # Build the gate frames in the world
         for g in meta["gates_in_order"]:
             yaw = math.radians(g["yaw_deg"])
             c, s = math.cos(yaw), math.sin(yaw)
@@ -33,7 +48,9 @@ class World:
         self.by_id = {f["id"]: f for f in self.frames}
 
     def min_clear(self, p):
-        """(distance, object id, part) to the nearest solid thing from point p (ENU)."""
+        """
+        (distance, object id, part) to the nearest solid thing from point p (ENU).
+        """
         x, y, z = p
         best = (1e9, None, None)
         for f in self.frames:
@@ -42,10 +59,12 @@ class World:
                 continue
             u = dx * f["c"] + dy * f["s"]
             v = -dx * f["s"] + dy * f["c"]
+            # Distance from the point to one axis-aligned box
             for cu, cv, cw, hu, hv, hw, name in f["boxes"]:
                 a = abs(u - cu) - hu
                 b = abs(v - cv) - hv
                 cc = abs(z - cw) - hw
+                # Clamp negatives, being inside box range on axis ads no distance
                 a = a if a > 0 else 0.0
                 b = b if b > 0 else 0.0
                 cc = cc if cc > 0 else 0.0
@@ -62,6 +81,7 @@ class World:
                 best = (d, f"cone{i}", "cone")
         return best
 
+    # Convert world point p to a frame's local coordinates (u, v, w)
     def frame_local(self, fid, p):
         f = self.by_id[fid]
         dx, dy = p[0] - f["gx"], p[1] - f["gy"]
