@@ -23,17 +23,23 @@ class World:
         
         # Track boundary [width, length] in meters
         self.boundary = meta["boundary_m"]
+        # Cone positions (x, y) in meters
         self.cones = [tuple(c) for c in meta["cones"]]
+        # One frame per physical gate frame
         self.frames = []
 
         # Build the gate frames in the world
         for g in meta["gates_in_order"]:
             yaw = math.radians(g["yaw_deg"])
             c, s = math.cos(yaw), math.sin(yaw)
+
+            # Handle double-gate by creating two frames
             if g.get("double_stack"):
                 specs = [(f'{g["gate"]}L', g["z_lower"], True), (f'{g["gate"]}U', g["z_upper"], False)]
             else:
                 specs = [(str(g["gate"]), g["z_center"], True)]
+
+            # Build boxes that make up one frame
             for fid, zc, has_stand in specs:
                 boxes = [
                     (0, -(W / 2 + T / 2), zc, D / 2, T / 2, (H + 2 * T) / 2, "left post"),
@@ -41,6 +47,7 @@ class World:
                     (0, 0, zc + H / 2 + T / 2, D / 2, W / 2, T / 2, "top bar"),
                     (0, 0, zc - (H / 2 + T / 2), D / 2, W / 2, T / 2, "bottom bar"),
                 ]
+                # Stand height: gap between floor and bottom bar
                 sh = zc - H / 2 - T
                 if has_stand and sh > 0.05:
                     boxes.append((0, 0, sh / 2, 0.06, 0.06, sh / 2, "stand"))
@@ -53,6 +60,7 @@ class World:
         """
         x, y, z = p
         best = (1e9, None, None)
+
         for f in self.frames:
             dx, dy = x - f["gx"], y - f["gy"]
             if abs(dx) > self.CULL or abs(dy) > self.CULL:
@@ -71,6 +79,7 @@ class World:
                 d = math.sqrt(a * a + b * b + cc * cc)
                 if d < best[0]:
                     best = (d, f["id"], name)
+
         for i, (cx, cy) in enumerate(self.cones):
             if abs(x - cx) > self.CULL or abs(y - cy) > self.CULL:
                 continue
@@ -79,6 +88,7 @@ class World:
             d = math.hypot(hh, vv)
             if d < best[0]:
                 best = (d, f"cone{i}", "cone")
+                
         return best
 
     # Convert world point p to a frame's local coordinates (u, v, w)
