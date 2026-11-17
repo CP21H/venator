@@ -19,6 +19,17 @@ VIA_AFTER_GATE_FT = {5: [(30.4, 82.4, -90.0)]}
 # ----------------------------------------------------------------------------
 # Knots -> spline -> speed profile
 # ----------------------------------------------------------------------------
+# Turn gate list into a list of knots, they waypoints the flight path must pass
+# 
+# Each knot is a dict:
+#   pos: (x, y, z) in ENU meters
+#   dir: unit vector along the path at this knot
+#   c:   curve width factor (1.0 = default, 2.0 = twice as wide, 0.5 = half as wide)
+#   opt: True if the optimizer may slide this knot sideways 
+#   perp: the sideways direction used for that sliding 
+#   label: gate names for printing and reporting
+#   gate: the gate id (or None) for reporting speed through gates
+#   req: 1 = must pass through this knot, -1 = must pass through but in reverse, 0 = optional
 def build_knots(meta, double_mode, turn_out=2.0):
     """
     Ordered knots: dict(pos, dir, c, opt, perp, label, gate, req) in ENU meters.
@@ -28,27 +39,42 @@ def build_knots(meta, double_mode, turn_out=2.0):
     gates = meta["gates_in_order"]
     knots = []
 
+    # Helper to add a knot to the list
     def K(pos, d, label, gate=None, opt=False, c=1.0, perp=(0, 0, 0), req=1):
         knots.append(dict(pos=pos, dir=d, c=c, opt=opt, perp=perp, label=label, gate=gate, req=req))
 
+    # Hover above the start pad at gate 1 height, facing gate 1
     z1 = gates[0]["z_path"]
     g1 = gates[0]
     K((sx, sy, z1), vunit((g1["x"] - sx, g1["y"] - sy, 0)), "start")
 
+    # Add a knot for each gate in race order
     for g in gates:
         yaw = math.radians(g["yaw_deg"])
+        # d = unit vector pointing towards the way the drone should fly, flatly
         d = (math.cos(yaw), math.sin(yaw), 0.0)
+        # perp = unit vector sideways across the gate opening along this direction to find a faster line
         perp = (-math.sin(yaw), math.cos(yaw), 0.0)
+        # x, y = gate center; n = gate id (string)
         x, y, n = g["x"], g["y"], str(g["gate"])
+
+        # Double-gate: add two knots, one for upper, one for lower
         if g.get("double_stack") and double_mode == "upper-lower":
+            # zu = height of upper gate, zl = height of lower gate
             zu, zl = g["z_upper"], g["z_lower"]
+            # r = radius of loop between gates, zc = height of the loop center
             r, zc = (zu - zl) / 2.0, (zu + zl) / 2.0
 
             def along(t): return (x + t * d[0], y + t * d[1])
+            # Knot 1: fly through upper gate
             K((x, y, zu), d, f"GATE{n}U", f"{n}U", req=1)
+            # Knot 2: top of the half loop between gates, facing downwards
             K((*along(turn_out), zu), d, f"loop{n}.0", c=1.0)
+            # Knot 3: moving straight down
             K((*along(turn_out + r), zc), (0, 0, -1), f"loop{n}.90", c=1.11)
+            # Knot 4: bottom half of the loop, facing back towards the gate
             K((*along(turn_out), zl), vmul(d, -1), f"loop{n}.180", c=1.0)
+            # Knot 5: fly through lower gate
             K((x, y, zl), vmul(d, -1), f"GATE{n}L", f"{n}L", req=-1)
         else:
             dbl = g.get("double_stack")
@@ -60,11 +86,16 @@ def build_knots(meta, double_mode, turn_out=2.0):
             K((xf * FT, (TRACK_L_FT - yf) * FT, knots[-1]["pos"][2]), (math.cos(h), math.sin(h), 0.0),
               f"via{n}.{i}", c=0.9)
 
+    # Final knot: above start pad at the last gate's height
     last = knots[-1]["pos"]
     K((sx, sy, gates[-1]["z_path"]), vunit(vsub((sx, sy, gates[-1]["z_path"]), last)), "home_above")
     return knots
 
-
+# Cubic Hermite spline
+#   P0, P1 = start and end points
+#   M0, M1 = start and end tangents (derivatives)
+#   
+#   Returns the position, first derivative, and second derivative at u 
 def hermite_sample(P0, M0, P1, M1, u):
     u2, u3 = u * u, u * u * u
     h00, h10, h01, h11 = 2 * u3 - 3 * u2 + 1, u3 - 2 * u2 + u, -2 * u3 + 3 * u2, u3 - u2
@@ -75,7 +106,7 @@ def hermite_sample(P0, M0, P1, M1, u):
     D2 = tuple(e00 * P0[i] + e10 * M0[i] + e01 * P1[i] + e11 * M1[i] for i in range(3))
     return P, D1, D2
 
-
+# -- Continue here on comments (CC378) -- 
 def build_path(knots, offs, cs, ds):
     """Dense samples along the spline: pts, unit tangents, curvature vectors (dT/ds), arc length."""
     pts, tans, kvs = [], [], []
@@ -172,15 +203,20 @@ PX4_PARAMS_INT = {
     "COM_RC_IN_MODE": 4,    # no RC / stick input required
 }
 
+# a: parsed args()
 def px4_float_params(a):
-    """Loosen PX4's default speed/acceleration/tilt limits so it can follow the trajectory."""
+    """
+    Loosen PX4's default speed/acceleration/tilt limits so it can follow the trajectory.
+
+    If we don't do this, PX4 will silently clip speed/accel commands.
+    """
     return {
-        "MPC_XY_VEL_MAX": max(12.0, a.speed * 1.4),
-        "MPC_Z_VEL_MAX_UP": 8.0,
-        "MPC_Z_VEL_MAX_DN": 8.0,
-        "MPC_ACC_HOR_MAX": max(10.0, a.lat_accel * 1.6),
-        "MPC_ACC_HOR": max(8.0, a.lat_accel * 1.4),
-        "MPC_TILTMAX_AIR": 60.0,
+        "MPC_XY_VEL_MAX": max(12.0, a.speed * 1.4),         # max horizontal speed
+        "MPC_Z_VEL_MAX_UP": 8.0,                            # max climb rate for double-gate
+        "MPC_Z_VEL_MAX_DN": 8.0,                            # max descent rate for double-gate
+        "MPC_ACC_HOR_MAX": max(10.0, a.lat_accel * 1.6),    # max horizontal acceleration
+        "MPC_ACC_HOR": max(8.0, a.lat_accel * 1.4),         # horizontal acceleration used by the position controller
+        "MPC_TILTMAX_AIR": 60.0,                            # max tilt angle in degrees, more tilt = more sideways accel
     }
 
 def list_args():
