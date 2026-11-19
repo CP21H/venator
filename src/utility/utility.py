@@ -106,30 +106,49 @@ def hermite_sample(P0, M0, P1, M1, u):
     D2 = tuple(e00 * P0[i] + e10 * M0[i] + e01 * P1[i] + e11 * M1[i] for i in range(3))
     return P, D1, D2
 
-# -- Continue here on comments (CC378) -- 
+# Turn knots into a dense list of points along the spline. Return four parallel lists:
+#   pts     positions   list of (x, y, z) points along the spline
+#   tans    tangents    unit direction of travel at each point
+#   kvs     curvature   how fast the direction turns per meter of travel
+#   s       arc length  distance traveled along the curve at each point
+# Inputs:
+#   knots   list of dict(pos, dir, c, opt, perp, label, gate, req)
+#   offs    sideways shift for each knot
+#   cs      curve width factor for each knot
+#   ds      distance between samples along the spline
 def build_path(knots, offs, cs, ds):
-    """Dense samples along the spline: pts, unit tangents, curvature vectors (dT/ds), arc length."""
+    """
+    Dense samples along the spline: pts, unit tangents, curvature vectors (dT/ds), arc length.
+    """
     pts, tans, kvs = [], [], []
     n = len(knots)
+    # Build the base points for each knot, shifted sideways by the given offsets
     base = [vadd(k["pos"], vmul(k["perp"], offs[i])) for i, k in enumerate(knots)]
+
+    # For each pair of knots, process the curve segment 
     for i in range(n - 1):
         P0, P1 = base[i], base[i + 1]
-        L = vnorm(vsub(P1, P0))
-        M0 = vmul(knots[i]["dir"], cs[i] * L)
-        M1 = vmul(knots[i + 1]["dir"], cs[i + 1] * L)
-        m = max(6, int(L / ds) + 1)
+        L = vnorm(vsub(P1, P0))                         # Straight line distance between two knots
+        M0 = vmul(knots[i]["dir"], cs[i] * L)           # Tangent vector
+        M1 = vmul(knots[i + 1]["dir"], cs[i + 1] * L)   # Tangent vector
+        m = max(6, int(L / ds) + 1)                     # Number of samples in the segment
         last = (i == n - 2)
+
+        # Go along the segment from u = 0 to u = 1
         for k in range(m + (1 if last else 0)):
             u = k / m
             P, D1, D2 = hermite_sample(P0, M0, P1, M1, u)
             sp = vnorm(D1)
+
             if sp < 1e-6:
                 continue
+            
             T = vmul(D1, 1.0 / sp)
             perp_acc = vsub(D2, vmul(T, vdot(D2, T)))
             pts.append(P)
             tans.append(T)
             kvs.append(vmul(perp_acc, 1.0 / (sp * sp)))
+
     s = [0.0]
     for a, b in zip(pts, pts[1:]):
         s.append(s[-1] + vnorm(vsub(b, a)))
