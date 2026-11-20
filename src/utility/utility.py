@@ -138,15 +138,16 @@ def build_path(knots, offs, cs, ds):
         for k in range(m + (1 if last else 0)):
             u = k / m
             P, D1, D2 = hermite_sample(P0, M0, P1, M1, u)
-            sp = vnorm(D1)
+            sp = vnorm(D1)  # how fast the curve moves per unit u
 
             if sp < 1e-6:
                 continue
             
-            T = vmul(D1, 1.0 / sp)
+            T = vmul(D1, 1.0 / sp)  # T = unit tangent (direction of travel)
             perp_acc = vsub(D2, vmul(T, vdot(D2, T)))
             pts.append(P)
             tans.append(T)
+            # Divide sp^2 to convert 'per unit u' into 'per meter'
             kvs.append(vmul(perp_acc, 1.0 / (sp * sp)))
 
     s = [0.0]
@@ -154,31 +155,54 @@ def build_path(knots, offs, cs, ds):
         s.append(s[-1] + vnorm(vsub(b, a)))
     return pts, tans, kvs, s
 
-
+# Decide how fast to go at every point along the path
+# Returns:
+#   (v, t): speed at each point and the time at which we reach each point
+# Three limits:
+#   1. Cornering: in a turn of radius 1/k the sideways acceleration is v^2 * k
+#                 stay under a_lat we need v <= sqrt(a_lat / k)
+#   2. Acceleration: don't speed up past a_acc
+#   3. Braking: slow enough to slow down in time for corners, braking at most a_dec
 def speed_profile(s, kvs, vmax, a_lat, a_acc, a_dec):
     n = len(s)
+
+    # Cornering speed limit at each point, straights just use vmax
     v = []
     for kv in kvs:
         k = vnorm(kv)
         v.append(min(vmax, math.sqrt(a_lat / k)) if k > 1e-4 else vmax)
-    v[0] = 0.0
+    
+    v[0] = 0.0  # start from standstill 
+
+    # Limit how quickly speed can build up from previous point
     for i in range(1, n):
         v[i] = min(v[i], math.sqrt(v[i - 1] ** 2 + 2 * a_acc * (s[i] - s[i - 1])))
-    v[-1] = 0.0
+    
+    v[-1] = 0.0 # start from standstill 
+
+    # Walk from end back to start, make sure each point is slow enough that 
+    # we can brake in time for the slower point ahead
     for i in range(n - 2, -1, -1):
         v[i] = min(v[i], math.sqrt(v[i + 1] ** 2 + 2 * a_dec * (s[i + 1] - s[i])))
+    
     t = [0.0]
+    
     for i in range(n - 1):
         ds = s[i + 1] - s[i]
         vs = v[i] + v[i + 1]
         t.append(t[-1] + (2 * ds / vs if vs > 1e-6 else 0.1))
+    
     return v, t
 
-
+# Prints a short text summary of the plan:
+#   Distance, lap time, top/average speed, closest approach to anything
 def plan_summary(traj, world, knots, args):
+    # mc = smallest distance to any obstacle along the path
     mc = min(world.min_clear(p)[0] for p in traj.pts[::4])
     print(f"Plan: {traj.s[-1]:.1f} m, lap {traj.T:.1f} s, peak {max(traj.v):.1f} m/s (limit {args.speed}), "
           f"avg {traj.s[-1] / traj.T:.1f} m/s, min clearance {mc - args.drone_radius:+.2f} m beyond drone radius")
+
+    # For each gate knot, find the path sample nearest to it and note the planned speed
     gl = []
     for k in knots:
         if k["gate"]:
@@ -186,7 +210,7 @@ def plan_summary(traj, world, knots, args):
             gl.append((k["gate"], traj.v[j]))
     print("  planned speed through gates: " + "  ".join(f"{g}:{v:.1f}" for g, v in gl) + "  (m/s)")
 
-
+# Save a PNG picture of the plan
 def plot_plan(path, traj, world, meta):
     import matplotlib
     matplotlib.use("Agg")
