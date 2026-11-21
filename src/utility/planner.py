@@ -4,17 +4,29 @@ from utility.trajectory import Trajectory
 # ----------------------------------------------------------------------------
 # Planner (minimum-time-ish): coordinate descent on gate crossing offsets + curve widths
 # ----------------------------------------------------------------------------
+# Finds a fast, safe line through the gates
+# Each normal gate has two knobs:
+#   offs[i]     slide the crossing point sideways within the opening
+#   cs[i]       tangent scale (how wide the curve is around that gate)
+# Planner tries small changes to one knob at a time and keeps any change that lowers the cost
 class Planner:
     def __init__(self, meta, world, args):
         self.meta, self.world, self.args = meta, world, args
-        self.knots = build_knots(meta, args.double_mode)
+        # Knots / waypoints to pass through
+        self.knots = build_knots(meta, args.double_mode) 
         n = len(self.knots)
-        self.opt_idx = [i for i, k in enumerate(self.knots) if k["opt"]]
+        # Indices of the knots the optimizer is allowed to adjust
+        self.opt_idx = [i for i, k in enumerate(self.knots) if k["opt"]] 
+        # Start with every crossing at gate center
         self.offs = [0.0] * n
+        # Start with each knots default tangent scale
         self.cs = [k["c"] for k in self.knots]
+        # Required clearance, drone must stay away from solid object
         self.need = args.drone_radius + args.plan_margin
+        # Largest sideways shift allowed at a gate: half the opening minus drone radius and margins
         self.omax = max(0.0, world.W / 2 - args.drone_radius - args.plan_margin - 0.05)
 
+    # Continue here: CC538
     def evaluate(self, offs, cs, ds=0.25):
         a = self.args
         pts, tans, kvs, s = build_path(self.knots, offs, cs, ds)
